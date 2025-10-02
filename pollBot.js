@@ -34,42 +34,42 @@ function getNextPracticeThisWeek() {
 }
 
 
-// async function saveSession(page) {
-//   const cookies = await page.cookies();
-//   const localStorage = await page.evaluate(() => {
-//     let store = {};
-//     for (let i = 0; i < localStorage.length; i++) {
-//       const key = localStorage.key(i);
-//       store[key] = localStorage.getItem(key);
-//     }
-//     return store;
-//   });
+async function saveSession(page) {
+  const cookies = await page.cookies();
+  const localStorage = await page.evaluate(() => {
+    let store = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      store[key] = localStorage.getItem(key);
+    }
+    return store;
+  });
 
-//   fs.writeFileSync("session.json", JSON.stringify({ cookies, localStorage }));
-//   console.log("✅ Session saved.");
-// }
+  fs.writeFileSync("session.json", JSON.stringify({ cookies, localStorage }));
+  console.log("✅ Session saved.");
+}
 
-// async function loadSession(page) {
-//   if (!fs.existsSync("session.json")) return false;
+async function loadSession(page) {
+  if (!fs.existsSync("session.json")) return false;
 
-//   const { cookies, localStorage } = JSON.parse(fs.readFileSync("session.json", "utf8"));
+  const { cookies, localStorage } = JSON.parse(fs.readFileSync("session.json", "utf8"));
 
-//   // Set cookies first
-//   for (let cookie of cookies) {
-//     await page.setCookie(cookie);
-//   }
+  // Set cookies first
+  for (let cookie of cookies) {
+    await page.setCookie(cookie);
+  }
 
-//   // Navigate so we’re on messenger domain before applying localStorage
-//   await page.goto("https://www.messenger.com/");
-//   await page.evaluate(storage => {
-//     for (let key in storage) {
-//       localStorage.setItem(key, storage[key]);
-//     }
-//   }, localStorage);
+  // Navigate so we’re on messenger domain before applying localStorage
+  await page.goto("https://www.messenger.com/");
+  await page.evaluate(storage => {
+    for (let key in storage) {
+      localStorage.setItem(key, storage[key]);
+    }
+  }, localStorage);
 
-//   console.log("✅ Session loaded.");
-//   return true;
-// }
+  console.log("✅ Session loaded.");
+  return true;
+}
 
 //post poll
 async function postPoll(dateText) {
@@ -77,32 +77,24 @@ async function postPoll(dateText) {
   const page = await browser.newPage();
   page.setDefaultTimeout(60000);
 
-  const hasSession = await loadSession(page);
-
-  if (!hasSession) {
-    await page.goto("https://www.messenger.com/login");
-
-    console.log("⚠️ Please log in manually (username, password, 2FA). You have 60s.");
-
-    await saveSession(page);
-  }
+  await page.goto("https://www.messenger.com/login", { waitUntil: "networkidle2" });
 
   // Now continue with the rest of your poll posting
-  await page.goto(`https://www.messenger.com/t/${CHAT_ID}`);
+  await page.goto(`https://www.messenger.com/t/${CHAT_ID}`, { waitUntil: "networkidle2" });
 
   await page.waitForSelector('div[role="button"][aria-label="Close"]', { timeout: 30000 });
   await page.click('div[role="button"][aria-label="Close"]');
   await page.waitForSelector('div[role="button"][aria-label="Don\\\'t restore messages"]', { timeout: 30000 });
   await page.click('div[role="button"][aria-label="Don\\\'t restore messages"]');
-  console.log("✅ Restore bypassed.");
+  console.log("🆗 Restore bypassed.");
 
   await page.waitForSelector('div[role="button"][aria-haspopup="menu"]', { timeout: 30000 });
   await page.click('div[role="button"][aria-haspopup="menu"]');
-  console.log("✅ Menu loaded.");
+  console.log("🆗 Menu loaded.");
 
   await page.waitForSelector('div[role="menuitem"][aria-label="Create a poll"', { timeout: 30000 });
   await page.click('div[role="menuitem"][aria-label="Create a poll"');
-  console.log("✅ Poll loaded.");
+  console.log("🆗 Poll loaded.");
 
   // Fill poll text
   await page.waitForSelector('input[aria-label="Ask a question"]', { timeout: 30000 });
@@ -111,19 +103,24 @@ async function postPoll(dateText) {
   await optionInputs[0].type("Yes");
   await page.keyboard.press("Tab");
   await page.keyboard.type("No");
-  console.log("✅ Poll question and options inputted.");
+  console.log("🆗 Poll question and options inputted.");
 
+  await page.waitForFunction(() => {
+    const inputs = document.querySelectorAll('input[aria-label="Add option..."]');
+    return inputs.length >= 2 && inputs[0].value.length > 0 && inputs[1].value.length > 0;
+  }, { timeout: 5000 });
+
+  console.log("🆗 Poll inputs confirmed in DOM.");
 
   // Submit poll
-  await page.waitForSelector('div[aria-label="Create poll"]', { timeout: 30000 });
-  await page.click('div[aria-label="Create poll"]');
+  await page.waitForSelector('div[role="button"][aria-label="Create poll"]', { timeout: 30000 });
+  await page.click('div[role="button"][aria-label="Create poll"]');
   console.log("✅ Poll created:", dateText);
 
   await browser.close();
-  console.log("✅ Browser closed");
 }
 
-schedule.scheduleJob("22 22 * * *", async () => {
+schedule.scheduleJob("* * * * *", async () => {
   console.log("💬 Running script...");
   const practiceText = getNextPracticeThisWeek();
   if (practiceText) {
@@ -133,7 +130,7 @@ schedule.scheduleJob("22 22 * * *", async () => {
   }
 });
 
-// //first run
+//first run
 // (async () => {
 //   const practiceText = getNextPracticeThisWeek();
 
