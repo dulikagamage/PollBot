@@ -1,10 +1,13 @@
+require('dotenv').config();
 const puppeteer = require("puppeteer");
 const schedule = require("node-schedule");
 const fs = require("fs");
 const { format, parseISO, isAfter, endOfWeek, isBefore } = require("date-fns");
 
 
-const CHAT_ID = "809433941499799"; //replace with any group chat
+const CHAT_ID = process.env.CHAT_ID;
+const FB_EMAIL = process.env.FB_EMAIL;
+const FB_PASSWORD = process.env.FB_PASSWORD;
 
 
 // get the next practice
@@ -59,7 +62,7 @@ async function loadSession(page) {
     await page.setCookie(cookie);
   }
 
-  // Navigate so we’re on messenger domain before applying localStorage
+  // Navigate so we're on messenger domain before applying localStorage
   await page.goto("https://www.messenger.com/");
   await page.evaluate(storage => {
     for (let key in storage) {
@@ -71,73 +74,139 @@ async function loadSession(page) {
   return true;
 }
 
+async function loginToFacebook(page) {
+  console.log("🔐 Attempting to log in...");
+  
+  // Try to load existing session first
+  const sessionLoaded = await loadSession(page);
+  if (sessionLoaded) {
+    await page.goto(`https://www.messenger.com/t/${CHAT_ID}`, { waitUntil: "networkidle2" });
+    
+    // Check if we're actually logged in by looking for chat interface
+    try {
+      await page.waitForSelector('div[role="textbox"]', { timeout: 5000 });
+      console.log("✅ Session valid, already logged in.");
+      return true;
+    } catch {
+      console.log("⚠️ Session expired, need to login again.");
+    }
+  }
+
+  // Need to login
+  await page.goto("https://www.messenger.com/login", { waitUntil: "networkidle2" });
+  
+  // Fill login form
+  await page.waitForSelector('#email', { timeout: 30000 });
+  await page.type('#email', FB_EMAIL);
+  await page.type('#pass', FB_PASSWORD);
+  await page.click('button[name="login"]');
+  
+  // Wait for login to complete
+  await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 60000 });
+  
+  // Save session for next time
+  await saveSession(page);
+  console.log("✅ Successfully logged in.");
+  return true;
+}
+
 //post poll
 async function postPoll(dateText) {
   const browser = await puppeteer.launch({ headless: false });
   const page = await browser.newPage();
   page.setDefaultTimeout(60000);
 
-  await page.goto("https://www.messenger.com/login", { waitUntil: "networkidle2" });
+  try {
+    // Login to Facebook
+    await loginToFacebook(page);
+    
+    // Navigate to the specific chat
+    await page.goto(`https://www.messenger.com/t/${CHAT_ID}`, { waitUntil: "networkidle2" });
 
-  // Now continue with the rest of your poll posting
-  await page.goto(`https://www.messenger.com/t/${CHAT_ID}`, { waitUntil: "networkidle2" });
+    // Handle potential restore messages dialog
+    while(true){
+      try {
+        await page.waitForSelector('div[role="button"][aria-label="Close"]', { timeout: 5000 });
+        await page.click('div[role="button"][aria-label="Close"]');
+        console.log("🆗 Pin prompt dismissed.");
+        await page.waitForSelector('div[role="button"][aria-label="Don\'t restore messages"]', { timeout: 5000 });
+        await page.click('div[role="button"][aria-label="Don\'t restore messages"]');
+        console.log("🆗 Restore dialog bypassed.");
+      } catch {
+        console.log("ℹ️ No restore dialog found.");
+        break;
+      }
+    }
 
-  await page.waitForSelector('div[role="button"][aria-label="Close"]', { timeout: 30000 });
-  await page.click('div[role="button"][aria-label="Close"]');
-  await page.waitForSelector('div[role="button"][aria-label="Don\\\'t restore messages"]', { timeout: 30000 });
-  await page.click('div[role="button"][aria-label="Don\\\'t restore messages"]');
-  console.log("🆗 Restore bypassed.");
+    console.log("🔍 Looking for menu button...");
+    await page.waitForSelector('div[role="button"][aria-haspopup="menu"]', { timeout: 30000 });
+    await page.click('div[role="button"][aria-haspopup="menu"]');
+    console.log("🆗 Menu opened.");
 
-  await page.waitForSelector('div[role="button"][aria-haspopup="menu"]', { timeout: 30000 });
-  await page.click('div[role="button"][aria-haspopup="menu"]');
-  console.log("🆗 Menu loaded.");
+    console.log("🔍 Looking for Create a poll option...");
+    await page.waitForSelector('div[role="menuitem"][aria-label="Create a poll"]', { timeout: 30000 });
+    await page.click('div[role="menuitem"][aria-label="Create a poll"]');
+    console.log("🆗 Poll dialog opened.");
 
-  await page.waitForSelector('div[role="menuitem"][aria-label="Create a poll"', { timeout: 30000 });
-  await page.click('div[role="menuitem"][aria-label="Create a poll"');
-  console.log("🆗 Poll loaded.");
+    // Fill poll text
+    console.log("🔍 Looking for question input...");
+    await page.waitForSelector('input[aria-label="Ask a question"]', { timeout: 30000 });
+    await page.type('input[aria-label="Ask a question"]', `Practice this week: ${dateText}`);
+    console.log("🆗 Question typed.");
+    
+    const optionInputs = await page.$$('input[aria-label="Add option..."]');
+    await optionInputs[0].type("Yes");
+    await page.keyboard.press("Tab");
+    await page.keyboard.type("No");
+    console.log("🆗 Poll options filled.");
 
-  // Fill poll text
-  await page.waitForSelector('input[aria-label="Ask a question"]', { timeout: 30000 });
-  await page.type('input[aria-label="Ask a question"]', dateText);
-  const optionInputs = await page.$$('input[aria-label="Add option..."]');
-  await optionInputs[0].type("Yes");
-  await page.keyboard.press("Tab");
-  await page.keyboard.type("No");
-  console.log("🆗 Poll question and options inputted.");
-
-  await page.waitForFunction(() => {
-    const inputs = document.querySelectorAll('input[aria-label="Add option..."]');
-    return inputs.length >= 2 && inputs[0].value.length > 0 && inputs[1].value.length > 0;
-  }, { timeout: 5000 });
-
-  console.log("🆗 Poll inputs confirmed in DOM.");
-
-  // Submit poll
-  await page.waitForSelector('div[role="button"][aria-label="Create poll"]', { timeout: 30000 });
-  await page.click('div[role="button"][aria-label="Create poll"]');
-  console.log("✅ Poll created:", dateText);
-
-  await browser.close();
+    // Submit poll
+    console.log("🔍 Looking for Create poll button...");
+    await page.waitForSelector('div[role="button"][aria-label="Create poll"]', { timeout: 30000 });
+    await page.click('div[role="button"][aria-label="Create poll"]');
+    console.log("🆗 Create poll button clicked.");
+    console.log("✅ Poll creation attempted:", dateText);
+    
+  } catch (error) {
+    console.error("❌ Error creating poll:", error.message);
+    console.log("📸 Taking screenshot for debugging...");
+    await page.screenshot({ path: 'error-screenshot.png', fullPage: true });
+  } finally {
+    await browser.close();
+    console.log("💻 Browser closed");
+  }
 }
 
-schedule.scheduleJob("* * * * *", async () => {
-  console.log("💬 Running script...");
+// Schedule to run every Monday at 9 AM
+schedule.scheduleJob('0 9 * * 1', async () => {
+  console.log("💬 Weekly poll check running...");
   const practiceText = getNextPracticeThisWeek();
   if (practiceText) {
+    console.log("📅 Practice found this week, creating poll...");
     await postPoll(practiceText);
   } else {
-    console.log("⚠️ No upcoming practice found in list.");
+    console.log("⚠️ No practice this week, skipping poll.");
   }
 });
 
-//first run
-// (async () => {
+// Test function - runs every minute (comment out for production)
+// schedule.scheduleJob('* * * * *', async () => {
+//   console.log("🧪 Test run every minute...");
 //   const practiceText = getNextPracticeThisWeek();
-
 //   if (practiceText) {
 //     await postPoll(practiceText);
 //   } else {
 //     console.log("⚠️ No upcoming practice found in list.");
+//   }
+// });
 
+// Uncomment for immediate test run
+// (async () => {
+//   console.log("🧪 Test run once...");
+//   const practiceText = getNextPracticeThisWeek();
+//   if (practiceText) {
+//     await postPoll(practiceText);
+//   } else {
+//     console.log("⚠️ No upcoming practice found in list.");
 //   }
 // })();

@@ -1,0 +1,16 @@
+{
+  "name": "poll-bot",
+  "version": "1.0.0",
+  "description": "Automated Facebook Messenger poll bot for practice reminders",
+  "main": "pollbot.js",
+  "scripts": {
+    "start": "node pollbot.js",
+    "test": "node -e \"require('./pollbot.js')\""
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0",
+    "node-schedule": "^2.1.1",
+    "date-fns": "^2.30.0",
+    "dotenv": "^16.3.1"
+  }
+}
