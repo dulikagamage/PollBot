@@ -214,12 +214,12 @@ schedule.scheduleJob('0 9 * * 1', async () => {
 // });
 
 // Uncomment for immediate test run
-(async () => {
-  console.log("🧪 Test run once...");
-  const practiceText = getNextPracticeThisWeek();
-  if (practiceText) {
-    await postPoll(practiceText);
-  } else {
-    console.log("⚠️ No upcoming practice found in list.");
-  }
-})();
+// (async () => {
+//   console.log("🧪 Test run once...");
+//   const practiceText = getNextPracticeThisWeek();
+//   if (practiceText) {
+//     await postPoll(practiceText);
+//   } else {
+//     console.log("⚠️ No upcoming practice found in list.");
+//   }
+// })();
