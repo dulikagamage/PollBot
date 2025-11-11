@@ -4,31 +4,31 @@ const schedule = require("node-schedule");
 const fs = require("fs");
 const { format, parseISO, isAfter, endOfWeek, isBefore } = require("date-fns");
 
-
+//env config
 const CHAT_ID = process.env.CHAT_ID;
 const FB_EMAIL = process.env.FB_EMAIL;
 const FB_PASSWORD = process.env.FB_PASSWORD;
 
 
-// get the next practice
+//get the next practice
 function getNextPracticeThisWeek() {
   const practices = JSON.parse(fs.readFileSync("practices.json", "utf8"));
   const now = new Date();
-  const end = endOfWeek(now, { weekStartsOn: 1 }); // Sunday 23:59:59 local
+  const end = endOfWeek(now, { weekStartsOn: 1 }); 
 
   const next = practices.find(p => isAfter(parseISO(p.date), now));
   if (!next) return null;
 
   const nextDate = parseISO(next.date);
 
-  // skip if it's after this week
+  //skip if it's after this week
   if (!isBefore(nextDate, end)) {
     console.log("⚠️ Next practice is not this week — skipping poll.", nextDate);
     console.log(end);
     return null;
   }
 
-  // Format for poll
+  //format for poll
   const prettyDate = format(nextDate, "EEEE, MMMM d");
   const startTime = format(new Date(`${next.date}T${next.start}`), "h:mma");
   const endTime = format(new Date(`${next.date}T${next.end}`), "h:mma");
@@ -112,7 +112,20 @@ async function loginToFacebook(page) {
 
 //post poll
 async function postPoll(dateText) {
-  const browser = await puppeteer.launch({ headless: false });
+  // Resource monitoring
+  const used = process.memoryUsage();
+  console.log(`💾 Memory usage: ${Math.round(used.rss / 1024 / 1024)}MB`);
+  
+  const browser = await puppeteer.launch({ 
+    headless: process.env.NODE_ENV === 'production',
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--memory-pressure-off',
+      '--max_old_space_size=512'
+    ]
+  });
   const page = await browser.newPage();
   page.setDefaultTimeout(60000);
 
@@ -139,8 +152,8 @@ async function postPoll(dateText) {
     }
 
     console.log("🔍 Looking for menu button...");
-    await page.waitForSelector('div[role="button"][aria-haspopup="menu"]', { timeout: 30000 });
-    await page.click('div[role="button"][aria-haspopup="menu"]');
+    await page.waitForSelector('div[role="button"][aria-haspopup="menu"][aria-label="Open more actions"]', { timeout: 30000 });
+    await page.click('div[role="button"][aria-haspopup="menu"][aria-label="Open more actions"]');
     console.log("🆗 Menu opened.");
 
     console.log("🔍 Looking for Create a poll option...");
@@ -201,12 +214,12 @@ schedule.scheduleJob('0 9 * * 1', async () => {
 // });
 
 // Uncomment for immediate test run
-// (async () => {
-//   console.log("🧪 Test run once...");
-//   const practiceText = getNextPracticeThisWeek();
-//   if (practiceText) {
-//     await postPoll(practiceText);
-//   } else {
-//     console.log("⚠️ No upcoming practice found in list.");
-//   }
-// })();
+(async () => {
+  console.log("🧪 Test run once...");
+  const practiceText = getNextPracticeThisWeek();
+  if (practiceText) {
+    await postPoll(practiceText);
+  } else {
+    console.log("⚠️ No upcoming practice found in list.");
+  }
+})();
